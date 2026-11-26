@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<link rel="icon" href="data:," />
+<title>鼓励贴自动生成器</title>
+<!-- Google Fonts：手写字体（display=swap 避免阻塞渲染） -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=Long+Cang&display=swap" rel="stylesheet" />
+<!-- 导出改用浏览器原生 Canvas 绘制，不再依赖 html2canvas（截 DOM 时容易被跨域字体 / 本地图片 / 复杂 CSS 卡住而整图失败） -->
+<style>
+:root{
+--bg:#f4f1ea; --panel:#ffffff; --panel2:#faf7f0; --line:#e6ddd0;
+--ink:#2b2620; --muted:#7a6f5f; --accent:#e4572e; --accent-dark:#c7431f;
+--accent-soft:#fdeee8; --gold:#e9a426; --navy:#1d3557;
+--radius:14px;
+color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+:root{
+--bg:#1a1815; --panel:#26221e; --panel2:#2e2924; --line:#3d362e;
+--ink:#f0e9dd; --muted:#b3a893; --accent:#ff7a52; --accent-dark:#ff7a52;
+--accent-soft:#3a2a24; --gold:#e9a426; --navy:#8fb4e8;
+color-scheme: dark;
+}
+}
+*{ box-sizing:border-box;}
+html,body{ margin:0; padding:0;}
+body{
+font-family: -apple-system, BlinkMacSystemFont, "PingFang SC","Microsoft YaHei","Noto Sans SC", sans-serif;
+background: var(--bg); color: var(--ink); line-height:1.5;
+}
+button, select, input, textarea{ font: inherit;}
+button, select, input:not([type="checkbox"]){ min-height:40px;}
+
+/* ===== 整体布局：桌面左控右预览，≤900px 上下 ===== */
+.app{ display:flex; gap:20px; max-width:1240px; margin:0 auto; padding:18px 16px 8px; align-items:flex-start;}
+@media (max-width: 900px){
+.app{ flex-direction:column; padding:12px 12px 4px;}
+.controls{ width:100%!important; position:static!important;}
+.preview-col{ width:100%;}
+}
+
+/* ===== 左侧控制区 ===== */
+.controls{
+width:392px; flex:0 0 auto; position:sticky; top:14px;
+background:var(--panel); border:1px solid var(--line); border-radius:18px;
+padding:18px 16px 16px; max-height:calc(100vh - 28px); overflow-y:auto;
+}
+@media (max-width: 900px){.controls{ max-height:none; overflow:visible;}}
+.controls h1{ font-size:21px; margin:0 0 2px; letter-spacing:.02em;}
+.sub-note{ font-size:13px; color:var(--muted); margin:0 0 14px;}
+.group{ border-top:1px solid var(--line); padding:13px 0 4px; margin-top:11px;}
+.group:first-of-type{ border-top:none; margin-top:0; padding-top:2px;}
+.group-title{ font-size:13px; font-weight:700; letter-spacing:.06em; color:var(--navy); margin:0 0 9px; display:flex; align-items:center; gap:7px;}
+.group-title::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--gold); flex:0 0 auto;}
+label.field-label{ display:block; font-size:13px; color:var(--muted); margin:10px 0 5px;}
+label.field-label:first-child{ margin-top:0;}
+textarea, select, input[type="text"]{
+width:100%; border:1px solid var(--line); border-radius:10px; background:var(--panel2);
+color:var(--ink); padding:9px 10px; font-size:14px;
+}
+textarea{ min-height:118px; resize:vertical; line-height:1.7;}
+textarea:focus, select:focus, input:focus{ outline:2px solid var(--gold); outline-offset:0; border-color:transparent;}
+.row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.row-color{ display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.color-wrap{ display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:10px; padding:4px 8px 4px 4px; background:var(--panel2);}
+.color-wrap input[type="color"]{ width:42px; height:34px; min-height:34px; border:none; padding:0; background:none; cursor:pointer;}
+.color-wrap span{ font-size:13px; color:var(--muted);}
+/* 书写区范围滑杆 */
+.range-row{ display:flex; align-items:center; gap:9px; font-size:13px; color:var(--muted); margin:3px 0;}
+.range-row span{ flex:0 0 44px;}
+.range-row input[type="range"]{ flex:1; accent-color:var(--accent); min-height:32px; padding:0;}
+.range-row b{ flex:0 0 42px; text-align:right; font-family:"Courier New",monospace; font-weight:400; color:var(--ink);}
+.date-row{ display:flex; gap:8px;}
+.date-row input{ flex:1;}
+.btn-today{ border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:10px; padding:0 14px; cursor:pointer; white-space:nowrap;}
+.btn-today:active{ background:var(--accent-soft);}
+
+/* 模板缩略图网格 */
+.tpl-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:7px;}
+@media (max-width: 900px){.tpl-grid{ grid-template-columns:repeat(6,1fr);}}
+@media (max-width: 420px){.tpl-grid{ grid-template-columns:repeat(5,1fr);}}
+.tpl-thumb{
+position:relative; aspect-ratio:3/4; border-radius:9px; overflow:hidden; cursor:pointer;
+border:2px solid transparent; padding:0; min-height:44px;
+background:linear-gradient(160deg,#f6c453 0%,#f08a4b 55%,#d95d39 100%);
+}
+.tpl-thumb:nth-child(3n){ background:linear-gradient(160deg,#a8d8ea 0%,#5b8e7d 100%);}
+.tpl-thumb:nth-child(4n){ background:linear-gradient(160deg,#f9d976 0%,#e4572e 100%);}
+.tpl-thumb:nth-child(5n){ background:linear-gradient(160deg,#b8e0d2 0%,#3d7ea6 100%);}
+.tpl-thumb img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;}
+.tpl-num{
+position:absolute; left:0; right:0; bottom:0; font-size:11px; font-weight:700; color:#fff;
+text-shadow:0 1px 3px rgba(0,0,0,.55); padding:2px 0; text-align:center; pointer-events:none;
+}
+.tpl-thumb.active{ border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft);}
+.tpl-name{ font-size:12px; color:var(--muted); margin-top:6px;}
+/* 本地文件夹加载 */
+.local-banner{
+border:1px solid #e9a426; background:#fff7e0; color:#6b4e00;
+border-radius:10px; padding:10px 12px; font-size:13px; line-height:1.6; margin:0 0 10px;
+}
+@media (prefers-color-scheme: dark){ .local-banner{ background:#3a3018; color:#f3d98b; border-color:#8a6d1f; } }
+.local-banner strong{ display:block; font-size:13.5px; margin-bottom:2px;}
+.btn-folder{
+width:100%; border:1.5px solid var(--navy); background:var(--panel); color:var(--navy);
+border-radius:11px; padding:10px 12px; cursor:pointer; font-weight:700; font-size:14.5px;
+display:flex; align-items:center; justify-content:center; gap:8px; min-height:46px;
+}
+.btn-folder:hover{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent-dark);}
+.btn-folder svg{ flex:0 0 auto;}
+.folder-status{ font-size:13px; margin:8px 0 2px; color:var(--ink);}
+.folder-status b{ color:var(--accent-dark); font-size:15px;}
+.folder-missing{ font-size:12px; color:var(--muted); margin:2px 0 0; line-height:1.6; word-break:break-all;}
+.folder-missing.warn{ color:#b3541e;}
+
+/* 微调方向键 */
+.nudge{ display:flex; align-items:center; gap:10px;}
+.nudge-pad{ display:grid; grid-template-columns:repeat(3,40px); grid-template-rows:repeat(2,40px); gap:4px;}
+.nudge-pad button{
+border:1px solid var(--line); background:var(--panel2); color:var(--ink); border-radius:9px;
+font-size:15px; cursor:pointer; min-height:40px; padding:0; line-height:1;
+}
+.nudge-pad button:active{ background:var(--accent-soft); border-color:var(--accent);}
+.pad-up{ grid-column:2; grid-row:1;}
+.pad-left{ grid-column:1; grid-row:2;}
+.pad-down{ grid-column:2; grid-row:2;}
+.pad-right{ grid-column:3; grid-row:2;}
+.nudge-info{ flex:1;}
+.offset-inputs{ display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+.offset-inputs label{ font-size:13px; color:var(--muted); display:flex; align-items:center; gap:5px;}
+.offset-inputs input[type="number"]{ width:66px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--ink); padding:5px 8px; font-family:"Courier New",monospace; font-size:13px; min-height:36px;}
+.btn-reset{ margin-top:7px; border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:9px; padding:0 14px; cursor:pointer; min-height:36px; font-size:13px;}
+.btn-reset:active{ background:var(--accent-soft);}
+.hint{ font-size:12px; color:var(--muted); margin:6px 0 0;}
+
+.checkline{ display:flex; align-items:center; gap:8px; font-size:13px; padding:8px 0 2px; cursor:pointer; min-height:36px;}
+.checkline input{ width:18px; height:18px; accent-color:var(--accent);}
+
+/* 生成按钮 */
+.btn-generate{
+width:100%; margin-top:16px; border:none; border-radius:13px; cursor:pointer;
+background:var(--accent); color:#fff; font-size:17px; font-weight:700; letter-spacing:.08em;
+padding:14px 10px; min-height:52px; box-shadow:0 4px 14px rgba(228,87,46,.35);
+}
+.btn-generate:hover{ background:var(--accent-dark);}
+.btn-generate:disabled{ opacity:.55; cursor:wait; box-shadow:none;}
+.export-status{ font-size:12px; color:var(--muted); text-align:center; margin:8px 0 2px; min-height:16px;}
+
+/* ===== 右侧预览区 ===== */
+.preview-col{ flex:1; min-width:0;}
+.preview-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:2px 2px 10px; flex-wrap:wrap;}
+.preview-head h2{ font-size:16px; margin:0;}
+.preview-head span{ font-size:12px; color:var(--muted);}
+
+/* 画布：与底图一致，底图铺满 */
+#preview{
+position:relative; width:100%; max-width:580px; margin:0 auto; aspect-ratio:3/4;
+border-radius:6px; overflow:hidden; background:#fff8ec;
+box-shadow:0 10px 34px rgba(60,40,10,.22), 0 2px 8px rgba(60,40,10,.12);
+}
+.bg-fallback{
+position:absolute; inset:0;
+background:
+radial-gradient(ellipse 90% 42% at 78% 88%, rgba(233,164,38,.5), rgba(233,164,38,0) 70%),
+linear-gradient(168deg,#fdf3d8 0%,#fbe3ae 34%,#f7c873 62%,#ee9a52 100%);
+}
+.camp-title{
+position:absolute; top:5.5%; left:0; right:0; text-align:center;
+font-family:"Ma Shan Zheng",cursive; font-size:clamp(22px,5.2vw,32px); color:#1d3557; letter-spacing:.14em;
+}
+.camp-sub{
+position:absolute; top:12.5%; left:0; right:0; text-align:center;
+font-size:clamp(10px,2vw,13px); color:#7a4b16; letter-spacing:.5em; font-weight:700;
+}
+.eagle-mark{
+position:absolute; right:5%; bottom:15%; width:20%; opacity:.4;
+}
+#bgImg{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:none;}
+
+/* 正文区：定位在 safeArea 内；按段落分段渲染，每段一个子 div，各自 text-indent 控制首行缩进 */
+#bodyText{
+position:absolute; overflow:hidden;
+/* 标点不换行（strict：中文标点不落到行首）+ 英文按单词断行、超长单词连字符断开，与导出 wrapLines 同一规则 */
+line-break:strict;
+overflow-wrap:break-word;
+hyphens:auto;
+z-index:3;
+}
+/* 书写区辅助边框（导出时隐藏） */
+#safeGuide{
+position:absolute; border:1.5px dashed rgba(228,87,46,.75); border-radius:4px;
+z-index:2; pointer-events:none;
+}
+#safeGuide::before{
+content:"书写区"; position:absolute; top:-9px; left:6px; font-size:10px; line-height:1;
+background:rgba(228,87,46,.9); color:#fff; padding:2px 6px; border-radius:6px; letter-spacing:.1em;
+}
+
+/* 签名区：签名 + 日期 */
+#signBlock{ position:absolute; z-index:4; max-width:70%;}
+#signBlock.pos-left{ left:8%; bottom:5.5%; text-align:left;}
+#signBlock.pos-right{ right:8%; bottom:5.5%; text-align:right;}
+#signText{ position:relative; display:inline-block; padding-bottom:5px; line-height:1.3; font-size:24px;}
+/* 手绘下划线 */
+#signText::after{
+content:""; position:absolute; left:1px; right:1px; bottom:0; height:5px;
+border-top:2px solid currentColor; border-radius:50%/100% 100% 0 0; opacity:.65;
+}
+#dateText{ font-family:"Courier New",monospace; margin-top:7px; letter-spacing:.06em;}
+
+/* 右下角手拿笔插画（CSS/SVG 绘制，属于画面内容，随图导出） */
+.pen-art{ position:absolute; right:0; bottom:0; width:20%; z-index:5; pointer-events:none;}
+
+/* 导出时隐藏全部辅助元素 */
+.exporting #safeGuide{ display:none!important;}
+
+/* ===== 使用说明 ===== */
+.guide{ max-width:1240px; margin:6px auto 30px; padding:0 16px;}
+.guide-inner{ background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px 20px 10px;}
+.guide h2{ font-size:16px; margin:0 0 6px;}
+.guide ol{ margin:6px 0 12px; padding-left:22px; font-size:14px;}
+.guide li{ margin-bottom:7px;}
+.guide code{ font-family:"Courier New",monospace; background:var(--panel2); border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:13px;}
+.guide p{ font-size:13px; color:var(--muted); margin:4px 0 10px;}
+</style>
+</head>
+<body>
+
+<div class="app">
+<!-- ================= 左侧：控制区 ================= -->
+<aside class="controls">
+<h1>鼓励贴自动生成器</h1>
+<p class="sub-note">选底图、写寄语、微调位置，一键导出 PNG 鼓励贴。</p>
+
+<!-- 模板选择 -->
+<section class="group">
+<p class="group-title">选择底图模板</p>
+<div class="local-banner" id="localBanner" hidden>
+<strong>本地打开：请先选一次 images 文件夹</strong>
+你现在是双击本地文件打开的（file://）。浏览器会拦截直接从硬盘路径加载的图片导出，所以请先点下面的按钮，选中同目录的 <b>images</b> 文件夹一次 — 页面会把图片读成数据，之后显示和导出都不再被拦截。
+</div>
+<button type="button" class="btn-folder" id="btnPickFolder">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3 10h18" stroke="currentColor" stroke-width="1.8"/></svg>
+选择 images 文件夹
+</button>
+<input type="file" id="folderInput" webkitdirectory directory multiple accept="image/*" hidden />
+<p class="folder-status" id="folderStatus">已加载 <b>0 / 18</b> 张图</p>
+<p class="folder-missing" id="folderMissing">还没从文件夹加载图片。在线打开时底图会自动显示；本地双击打开时，请用上面的按钮选一次 images 文件夹。</p>
+<div class="tpl-grid" id="tplGrid" style="margin-top:10px;"></div>
+<p class="tpl-name" id="tplName">当前：eagle-01</p>
+</section>
+
+<!-- 正文 -->
+<section class="group">
+<p class="group-title">正文内容</p>
+<textarea id="bodyInput">我知道，在一次次跳跃中，你也会累，也会想放弃。但请记得，每一次落地都是为了下一次更高的起跳。妈妈相信你，也陪着你。慢慢来，你比想象中更勇敢。</textarea>
+<label class="checkline"><input type="checkbox" id="salutationTop" checked /> 称呼顶格（第一行不缩进）</label>
+<div class="row2">
+<div>
+<label class="field-label" for="fontSize">字号</label>
+<select id="fontSize">
+<option value="12">12</option>
+<option value="13">13</option>
+<option value="14" selected>14</option>
+<option value="15">15</option>
+<option value="16">16</option>
+<option value="18">18</option>
+<option value="20">20</option>
+<option value="24">24</option>
+</select>
+</div>
+<div>
+<label class="field-label" for="bodyFont">正文字体</label>
+<select id="bodyFont">
+<option value='"KaiTi","STKaiti","楷体",serif' selected>楷体</option>
+<option value='"Ma Shan Zheng",cursive'>马善政手写体</option>
+<option value='"Zhi Mang Xing",cursive'>志莽行书</option>
+</select>
+</div>
+</div>
+<div class="row-color">
+<div>
+<label class="field-label">正文颜色</label>
+<div class="color-wrap"><input type="color" id="bodyColor" value="#333333" /><span>正文</span></div>
+</div>
+<div>
+<label class="field-label">签名颜色</label>
+<div class="color-wrap"><input type="color" id="signColor" value="#333333" /><span>签名</span></div>
+</div>
+</div>
+<!-- 书写区范围：按每张底图的实际空白区域调，整张卡片都能写 -->
+<label class="field-label">书写区范围（按底图的空白区域调，避开图标即可）</label>
+<div class="range-row"><span>左边距</span><input type="range" id="areaX" min="0" max="40" step="1" value="9" /><b id="areaXVal">9%</b></div>
+<div class="range-row"><span>上边距</span><input type="range" id="areaY" min="0" max="60" step="1" value="20" /><b id="areaYVal">20%</b></div>
+<div class="range-row"><span>宽度</span><input type="range" id="areaW" min="30" max="100" step="1" value="82" /><b id="areaWVal">82%</b></div>
+<div class="range-row"><span>高度</span><input type="range" id="areaH" min="20" max="100" step="1" value="60" /><b id="areaHVal">60%</b></div>
+<p class="hint">拖动滑杆实时改变虚线书写框的位置和大小，把它对到底图真正的空白处、避开星星 / 月亮 / 吉祥物等图标即可；每张模板各自记住自己的范围，切换不串。</p>
+<!-- 正文微调 -->
+<label class="field-label">正文位置微调（每步 2px）</label>
+<div class="nudge">
+<div class="nudge-pad" data-target="body">
+<button type="button" class="pad-up" data-dx="0" data-dy="-2" aria-label="正文上移">↑</button>
+<button type="button" class="pad-left" data-dx="-2" data-dy="0" aria-label="正文左移">←</button>
+<button type="button" class="pad-down" data-dx="0" data-dy="2" aria-label="正文下移">↓</button>
+<button type="button" class="pad-right" data-dx="2" data-dy="0" aria-label="正文右移">→</button>
+</div>
+<div class="nudge-info">
+<div class="offset-inputs">
+<label>X <input type="number" id="bodyOffsetX" value="0" step="1" aria-label="正文 X 偏移（像素）" /></label>
+<label>Y <input type="number" id="bodyOffsetY" value="0" step="1" aria-label="正文 Y 偏移（像素）" /></label>
+</div>
+<button type="button" class="btn-reset" id="bodyReset">重置正文位置</button>
+</div>
+</div>
+</section>
+
+<!-- 签名 -->
+<section class="group">
+<p class="group-title">签名与日期</p>
+<label class="field-label" for="signInput">签名</label>
+<input type="text" id="signInput" value="爱你的妈妈" />
+<p class="hint">签名字号固定 24 号，不随正文字号变化；正文大小只在上面单独调。</p>
+<div class="row2">
+<div>
+<label class="field-label" for="signFont">签名字体</label>
+<select id="signFont">
+<option value='"Ma Shan Zheng",cursive' selected>马善政手写体</option>
+<option value='"Zhi Mang Xing",cursive'>志莽行书</option>
+<option value='"Long Cang",cursive'>龙藏体</option>
+<option value='"STXingkai","华文行楷",cursive'>华文行楷</option>
+<option value='cursive'>系统手写体</option>
+</select>
+</div>
+<div>
+<label class="field-label" for="signPos">签名位置</label>
+<select id="signPos">
+<option value="left" selected>左下角</option>
+<option value="right">右下角</option>
+</select>
+</div>
+</div>
+<label class="field-label" for="dateInput">日期</label>
+<div class="date-row">
+<input type="text" id="dateInput" placeholder="YYYY.MM.DD" />
+<button type="button" class="btn-today" id="btnToday">今天</button>
+</div>
+<!-- 签名微调 -->
+<label class="field-label">签名位置微调（每步 2px，与正文互不影响）</label>
+<div class="nudge">
+<div class="nudge-pad" data-target="sign">
+<button type="button" class="pad-up" data-dx="0" data-dy="-2" aria-label="签名上移">↑</button>
+<button type="button" class="pad-left" data-dx="-2" data-dy="0" aria-label="签名左移">←</button>
+<button type="button" class="pad-down" data-dx="0" data-dy="2" aria-label="签名下移">↓</button>
+<button type="button" class="pad-right" data-dx="2" data-dy="0" aria-label="签名右移">→</button>
+</div>
+<div class="nudge-info">
+<div class="offset-inputs">
+<label>X <input type="number" id="signOffsetX" value="0" step="1" aria-label="签名 X 偏移（像素）" /></label>
+<label>Y <input type="number" id="signOffsetY" value="0" step="1" aria-label="签名 Y 偏移（像素）" /></label>
+</div>
+<button type="button" class="btn-reset" id="signReset">重置签名位置</button>
+</div>
+</div>
+<label class="checkline"><input type="checkbox" id="showGuide" checked /> 显示书写区辅助边框（导出时自动隐藏）</label>
+</section>
+
+<button type="button" class="btn-generate" id="btnGenerate">生成鼓励贴</button>
+<p class="export-status" id="exportStatus"></p>
+</aside>
+
+<!-- ================= 右侧：预览区 ================= -->
+<main class="preview-col">
+<div class="preview-head">
+<h2>实时预览</h2>
+<span>导出高清 PNG · 文件名带日期</span>
+</div>
+
+<div id="preview">
+<!-- 底图缺失时的渐变占位（不报错） -->
+<div class="bg-fallback" id="bgFallback">
+<div class="camp-title">MASTER CAMP</div>
+<div class="camp-sub">鼓 励 贴</div>
+<svg class="eagle-mark" viewBox="0 0 120 90" aria-hidden="true">
+<path d="M8 52 C30 18 52 10 60 30 C68 10 90 18 112 52 C92 44 78 46 68 56 C74 66 70 78 60 84 C50 78 46 66 52 56 C42 46 28 44 8 52 Z" fill="#1d3557" opacity="0.85"/>
+<circle cx="60" cy="38" r="4" fill="#e9a426"/>
+</svg>
+</div>
+<img id="bgImg" alt="鼓励贴底图" />
+<!-- 书写区辅助边框 -->
+<div id="safeGuide"></div>
+<!-- 正文 -->
+<div id="bodyText"></div>
+<!-- 签名 + 日期 -->
+<div id="signBlock" class="pos-left">
+<span id="signText">爱你的妈妈</span>
+<div id="dateText"></div>
+</div>
+<!-- 右下角手拿笔插画（SVG 绘制） -->
+<svg class="pen-art" id="penArt" viewBox="0 0 100 100" aria-hidden="true">
+<g transform="rotate(-18 62 62)">
+<rect x="56" y="18" width="11" height="52" rx="3" fill="#e4572e"/>
+<path d="M56 70 L61.5 86 L67 70 Z" fill="#f6c453"/>
+<path d="M60 81 L61.5 86 L63 81 Z" fill="#2b2620"/>
+<rect x="56" y="18" width="11" height="9" rx="3" fill="#1d3557"/>
+</g>
+<path d="M18 88 C34 76 52 92 84 80" stroke="#1d3557" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.55"/>
+<circle cx="20" cy="86" r="4" fill="#e9a426" opacity="0.8"/>
+</svg>
+</div>
+<p class="hint" style="text-align:center; margin-top:10px;">本地双击打开时，先点左侧「选择 images 文件夹」选一次同目录的 images 文件夹，底图就会显示出来、导出也不会被拦截。用左侧「书写区范围」滑杆把虚线框拉到与底图空白处对齐、避开图标和吉祥物即可，整张卡片都能写。签名默认在左下角，避开右下角的笔插画。</p>
+</main>
+</div>
+
+<!-- ================= 使用说明 ================= -->
+<div class="guide">
+<div class="guide-inner">
+<h2>使用说明</h2>
+<ol>
+<li><strong>放底图（本地双击打开时必看）：</strong>把 18 张底图命名为 <code>eagle-01.png</code> ～ <code>eagle-18.png</code>，放进和本页面同目录的 <code>images/</code> 文件夹。然后打开页面，点左侧最上面的【选择 images 文件夹】，在弹出的窗口里选中那个 <code>images</code> 文件夹 — 页面会把图片读成数据，下方会显示「已加载 X / 18 张图」。读进来之后，缩略图、预览和导出都用这份数据，不再被浏览器的本地跨域限制拦截。每次重新打开页面，都需要再选一次文件夹（浏览器不允许网页记住你硬盘上的文件夹）。在线打开本页面时底图会自动加载，这一步可以跳过。</li>
+<li><strong>切换模板：</strong>点左侧任意缩略图即可切换底图；每张图有自己独立的书写区预设，切换时正文 / 签名的微调偏移会自动归零，互不干扰。</li>
+<li><strong>对齐书写区：</strong>书写区不是固定死的。用左侧「书写区范围」四根滑杆（左边距 / 上边距 / 宽度 / 高度）把虚线框拉到当前底图真正的空白处，避开图标、吉祥物即可，整张卡片都能写；每张模板各自记住自己的范围。正文第一行默认「称呼顶格」不缩进（可在正文区取消勾选，恢复全部段落首行空两格），其余段落首行空两格。再用正文 / 签名各一组 ↑ ↓ ← → 方向键做 2px 精调，或直接在旁边的 X / Y 数字框里输入偏移量（方向键和数字框互相同步），点「重置」回到原位，两组完全独立。</li>
+<li><strong>字号：</strong>正文字号在左侧单独调；签名固定 24 号、日期固定 13 号，不跟着正文一起变。字号按卡片宽度等比换算，手机和电脑上选同一个字号，排版和导出效果完全一致，不用再为手机单独调小。</li>
+<li><strong>替换底图：</strong>想换某一张图，直接用新图覆盖同名文件即可，换图后用滑杆重新对齐它的书写区就行，不用改代码。</li>
+<li><strong>导出：</strong>点【生成鼓励贴】直接按底图原图尺寸导出高清 PNG，文件名形如 <code>鼓励贴_2026.11.24.png</code>；辅助边框不会进入图片。如果提示生成失败，先确认上方显示「已加载 18 / 18 张图」— 本地打开时没选过文件夹，图片是直接从硬盘路径加载的，浏览器会出于安全限制拦住导出；选一次 images 文件夹读成数据后就能正常生成，建议用 Chrome / Edge 打开。</li>
+</ol>
+<p>小提示：正文太长会被书写区裁掉，可拉高书写区高度、减小字号或缩短文字；签名选「右下角」时会与右下角的笔插画重叠，一般保持左下角。</p>
+</div>
+</div>
+
+<script>
+// ============ 模板数据：18 张底图，各自独立的 safeArea（百分比） ============
+// 底图放在本页面同目录的 ./images/ 下；默认书写区 x:9 y:20 w:82 h:60（几乎整卡可写），也可在界面上用滑杆按每张图的空白处再调
+const TEMPLATES = [
+{ id:'eagle-01', src:'./images/eagle-01.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-02', src:'./images/eagle-02.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-03', src:'./images/eagle-03.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-04', src:'./images/eagle-04.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-05', src:'./images/eagle-05.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-06', src:'./images/eagle-06.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-07', src:'./images/eagle-07.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-08', src:'./images/eagle-08.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-09', src:'./images/eagle-09.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-10', src:'./images/eagle-10.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-11', src:'./images/eagle-11.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-12', src:'./images/eagle-12.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-13', src:'./images/eagle-13.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-14', src:'./images/eagle-14.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-15', src:'./images/eagle-15.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-16', src:'./images/eagle-16.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-17', src:'./images/eagle-17.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}},
+{ id:'eagle-18', src:'./images/eagle-18.png', safeArea:{ x:9, y:20, w:82, h:60}, signArea:{ anchor:'bottom-left'}}
+];
+
+// ============ 状态 ============
+let currentTpl = TEMPLATES[0];
+const bodyOffset = { x:0, y:0}; // 正文独立偏移
+const signOffset = { x:0, y:0}; // 签名独立偏移
+// 通过「选择 images 文件夹」读进来的图片数据：id -> dataURL。
+// dataURL 是同源安全数据，画到 Canvas 上不会污染画布，本地 file:// 打开也能导出。
+const loadedData = {};
+const availableIds = {}; // id -> true：这张图已可用（文件夹读入 或 默认路径加载成功）
+let folderPicked = false;
+const isLocalFile = location.protocol === 'file:';
+
+// ============ 元素 ============
+const $ = id => document.getElementById(id);
+const previewEl = $('preview'), bgImg = $('bgImg'), bgFallback = $('bgFallback');
+const bodyText = $('bodyText'), safeGuide = $('safeGuide');
+const signBlock = $('signBlock'), signText = $('signText'), dateText = $('dateText');
+
+// ============ 日期工具：YYYY.MM.DD ============
+function todayStr(){
+const d = new Date();
+const p = n => String(n).padStart(2,'0');
+return d.getFullYear() + '.' + p(d.getMonth()+1) + '.' + p(d.getDate());
+}
+$('dateInput').value = todayStr();
+$('btnToday').addEventListener('click', () => { $('dateInput').value = todayStr(); render();});
+
+// ============ 已加载计数显示 ============
+const thumbImgById = {};
+function refreshFolderStatus(){
+const count = TEMPLATES.filter(t => availableIds[t.id]).length;
+$('folderStatus').innerHTML = '已加载 <b>' + count + ' / ' + TEMPLATES.length + '</b> 张图' + (folderPicked? '（来自所选文件夹）': '');
+const missing = TEMPLATES.filter(t => !availableIds[t.id]).map(t => t.id);
+const missEl = $('folderMissing');
+if (count === TEMPLATES.length) {
+missEl.textContent = folderPicked? '18 张底图已全部读进来，可以直接切换模板并生成鼓励贴。' : '18 张底图已全部加载。';
+missEl.className = 'folder-missing';
+} else if (folderPicked) {
+missEl.textContent = '还缺：' + missing.join('、') + '。请确认所选文件夹里有同名文件（eagle-01.png ～ eagle-18.png）。';
+missEl.className = 'folder-missing warn';
+} else if (isLocalFile) {
+missEl.textContent = '本地打开还没选文件夹：请点上方按钮选一次 images 文件夹，否则底图即使显示出来，导出也会被浏览器拦截。';
+missEl.className = 'folder-missing warn';
+} else {
+missEl.textContent = '还没从文件夹加载图片。在线打开时底图会自动显示；本地双击打开时，请用上面的按钮选一次 images 文件夹。';
+missEl.className = 'folder-missing';
+}
+if (isLocalFile && !folderPicked) $('localBanner').hidden = false;
+else if (folderPicked && count === TEMPLATES.length) $('localBanner').hidden = true;
+}
+if (isLocalFile) $('localBanner').hidden = false;
+
+// ============ 选择 images 文件夹：把图片读成 dataURL 再显示 / 导出 ============
+$('btnPickFolder').addEventListener('click', () => { $('folderInput').click();});
+$('folderInput').addEventListener('change', async (ev) => {
+const files = Array.from(ev.target.files || []);
+if (!files.length) return;
+folderPicked = true;
+$('folderMissing').textContent = '正在读取图片…';
+const byName = {};
+files.forEach(f => { byName[(f.name || '').toLowerCase()] = f;});
+let readCount = 0;
+await Promise.all(TEMPLATES.map(tpl => new Promise(resolve => {
+const file = byName[tpl.id + '.png'] || byName[tpl.id + '.jpg'] || byName[tpl.id + '.jpeg'] || byName[tpl.id + '.webp'];
+if (!file) { resolve(); return;}
+const reader = new FileReader();
+reader.onload = () => {
+loadedData[tpl.id] = String(reader.result);
+availableIds[tpl.id] = true;
+readCount++;
+const thumb = thumbImgById[tpl.id];
+if (thumb) { thumb.style.display = 'block'; thumb.src = loadedData[tpl.id];}
+resolve();
+};
+reader.onerror = () => resolve();
+reader.readAsDataURL(file);
+})));
+refreshFolderStatus();
+if (readCount === 0) {
+$('folderMissing').textContent = '这个文件夹里没找到 eagle-01.png ～ eagle-18.png，请确认选的是 images 文件夹本身。';
+$('folderMissing').className = 'folder-missing warn';
+}
+// 当前模板若已读进来，预览立刻换成 dataURL 版本（导出安全）
+if (loadedData[currentTpl.id]) selectTemplate(currentTpl, document.querySelector('.tpl-thumb.active'));
+ev.target.value = ''; // 允许下次再选同一文件夹
+});
+
+// ============ 模板缩略图网格 ============
+const tplGrid = $('tplGrid');
+TEMPLATES.forEach((tpl, i) => {
+const btn = document.createElement('button');
+btn.type = 'button';
+btn.className = 'tpl-thumb' + (i === 0? ' active': '');
+btn.setAttribute('aria-label', '模板 ' + tpl.id);
+const img = document.createElement('img');
+img.src = tpl.src; img.alt = '';
+thumbImgById[tpl.id] = img;
+img.onload = () => { if (!availableIds[tpl.id]) { availableIds[tpl.id] = true; refreshFolderStatus();} };
+img.onerror = () => {
+// 本地 images/ 没放图时，回退到页面自带的 assets/ 同名图；再失败才隐藏（保留渐变占位，不报错）
+if (loadedData[tpl.id]) { img.src = loadedData[tpl.id]; return;}
+if (!img.dataset.fb) { img.dataset.fb = '1'; img.src = tpl.src.replace('./images/', 'assets/');}
+else { img.style.display = 'none';}
+};
+const num = document.createElement('span');
+num.className = 'tpl-num'; num.textContent = String(i+1).padStart(2,'0');
+btn.appendChild(img); btn.appendChild(num);
+btn.addEventListener('click', () => selectTemplate(tpl, btn));
+tplGrid.appendChild(btn);
+});
+
+function selectTemplate(tpl, btn){
+currentTpl = tpl;
+// 切换模板：正文 / 签名偏移自动重置为 0
+bodyOffset.x = 0; bodyOffset.y = 0;
+signOffset.x = 0; signOffset.y = 0;
+document.querySelectorAll('.tpl-thumb').forEach(el => el.classList.remove('active'));
+if (btn) btn.classList.add('active');
+$('tplName').textContent = '当前：' + tpl.id;
+syncAreaControls(); // 滑杆同步到这张模板自己的书写区范围
+// 加载底图：优先用文件夹读进来的 dataURL（本地导出不被拦截）；
+// 其次本地 images/ 路径，缺图时回退页面自带的 assets/ 同名图，再失败才用渐变占位
+bgImg.style.display = 'none';
+bgImg.onload = () => { bgImg.style.display = 'block'; bgFallback.style.visibility = 'hidden'; availableIds[tpl.id] = true; refreshFolderStatus();};
+if (loadedData[tpl.id]) { bgImg.onerror = null; bgImg.src = loadedData[tpl.id]; render(); return;}
+let bgTriedFb = false;
+bgImg.onerror = () => {
+if (!bgTriedFb) { bgTriedFb = true; bgImg.src = tpl.src.replace('./images/', 'assets/'); return;}
+bgImg.style.display = 'none'; bgFallback.style.visibility = 'visible';
+};
+bgImg.src = tpl.src;
+render();
+}
+
+// ============ 微调（正文 / 签名两组独立）：方向键每步 2px，X / Y 数字框可直接输入，两边互相同步 ============
+function bindNudge(padSelector, offset, xId, yId, resetBtn){
+document.querySelectorAll(padSelector + ' button[data-dx]').forEach(btn => {
+btn.addEventListener('click', () => {
+offset.x += parseInt(btn.dataset.dx, 10);
+offset.y += parseInt(btn.dataset.dy, 10);
+render();
+});
+});
+$(resetBtn).addEventListener('click', () => { offset.x = 0; offset.y = 0; render();});
+// 数字框直接输入：输入即生效；正在编辑的那个框不被回写打断，失焦 / 回车后规整为整数
+function bindOffsetInput(id, key){
+const el = $(id);
+el.addEventListener('input', () => {
+const v = parseInt(el.value, 10);
+offset[key] = isNaN(v)? 0: v;
+render();
+});
+el.addEventListener('change', () => { el.value = offset[key];});
+}
+bindOffsetInput(xId, 'x');
+bindOffsetInput(yId, 'y');
+return () => {
+const xEl = $(xId), yEl = $(yId);
+if (document.activeElement !== xEl) xEl.value = offset.x;
+if (document.activeElement !== yEl) yEl.value = offset.y;
+};
+}
+const showBodyOffset = bindNudge('.nudge-pad[data-target="body"]', bodyOffset, 'bodyOffsetX', 'bodyOffsetY', 'bodyReset');
+const showSignOffset = bindNudge('.nudge-pad[data-target="sign"]', signOffset, 'signOffsetX', 'signOffsetY', 'signReset');
+
+// ============ 书写区范围滑杆：直接改当前模板的 safeArea，每张模板各存一份 ============
+const areaKeys = [['areaX','x'],['areaY','y'],['areaW','w'],['areaH','h']];
+function syncAreaControls(){
+areaKeys.forEach(([id, key]) => {
+$(id).value = currentTpl.safeArea[key];
+$(id + 'Val').textContent = currentTpl.safeArea[key] + '%';
+});
+}
+areaKeys.forEach(([id, key]) => {
+$(id).addEventListener('input', () => {
+currentTpl.safeArea[key] = parseInt($(id).value, 10);
+$(id + 'Val').textContent = $(id).value + '%';
+render();
+});
+});
+
+// ============ 实时渲染 ============
+// 字号 / 偏移一律按「卡片宽度比例」换算：以桌面预览宽 580px 为基准宽，
+// 实际字号 = 所选字号 × (当前卡片宽 / 580)。这样同一个字号在手机（卡片窄）
+// 和电脑（卡片宽）上占卡片的比例完全相同，排版行数一致，不会手机端写不下；
+// 导出时用同一基准换算（见导出处 sref），两端导出的图也完全一致。
+const REF_W = 580;
+function render(){
+const fontSize = parseInt($('fontSize').value, 10);
+const sa = currentTpl.safeArea;
+const k = (previewEl.clientWidth || REF_W) / REF_W; // 当前卡片宽相对基准宽的比例
+
+// 正文：定位在 safeArea 内 + 独立偏移
+bodyText.style.left = sa.x + '%';
+bodyText.style.top = sa.y + '%';
+bodyText.style.width = sa.w + '%';
+bodyText.style.height = sa.h + '%';
+bodyText.style.fontSize = (fontSize * k) + 'px';
+bodyText.style.lineHeight = 1.8; // 行高 = 1.8 × 字号
+bodyText.style.fontFamily = $('bodyFont').value;
+bodyText.style.color = $('bodyColor').value;
+// 按段落分段渲染（与导出 wrapLines 同一规则）：
+// 「称呼顶格」勾选时第一段首行不缩进，其余段落首行空两格；取消勾选时全部段落首行空两格。
+// 每段是独立 div，text-indent 只作用于该段第一行，续行天然顶格，与导出逐行断行结果一致。
+const topFlush = $('salutationTop').checked;
+// 含英文时把正文区语言标成 en，浏览器才会按英文词典给超长单词加连字符断行（hyphens:auto 需要匹配的 lang）
+bodyText.lang = /[A-Za-z]/.test($('bodyInput').value)? 'en': 'zh-CN';
+bodyText.textContent = '';
+$('bodyInput').value.split('\n').forEach((para, i) => {
+const div = document.createElement('div');
+div.style.textIndent = (i === 0 && topFlush)? '0': '2em';
+div.textContent = para === ''? ' ': para; // 空段保留一行高度，与导出空行一致
+bodyText.appendChild(div);
+});
+bodyText.style.transform = 'translate(' + (bodyOffset.x * k) + 'px,' + (bodyOffset.y * k) + 'px)';
+
+// 辅助边框与书写区对齐
+safeGuide.style.left = sa.x + '%';
+safeGuide.style.top = sa.y + '%';
+safeGuide.style.width = sa.w + '%';
+safeGuide.style.height = sa.h + '%';
+safeGuide.style.display = $('showGuide').checked? 'block': 'none';
+
+// 签名：基准 24 号、日期基准 13 号（同样乘 k 按卡片比例缩放），不随正文字号变化；轻微旋转 + 独立偏移
+signBlock.className = $('signPos').value === 'right'? 'pos-right': 'pos-left';
+signText.textContent = $('signInput').value || ' ';
+signText.style.fontFamily = $('signFont').value;
+signText.style.fontSize = (24 * k) + 'px'; // 签名基准 24 号，同样按卡片比例缩放
+signText.style.paddingBottom = (5 * k) + 'px';
+signText.style.color = $('signColor').value;
+dateText.textContent = $('dateInput').value;
+dateText.style.fontSize = (13 * k) + 'px'; // 日期基准 13 号，同样按卡片比例缩放
+dateText.style.marginTop = (7 * k) + 'px';
+dateText.style.color = $('signColor').value;
+signBlock.style.transform = 'translate(' + (signOffset.x * k) + 'px,' + (signOffset.y * k) + 'px) rotate(-2deg)';
+
+showBodyOffset(); showSignOffset();
+}
+
+// 所有控件变化都实时渲染
+['bodyInput','salutationTop','fontSize','bodyFont','bodyColor','signInput','signFont','signColor','signPos','dateInput','showGuide']
+.forEach(id => {
+$(id).addEventListener('input', render);
+$(id).addEventListener('change', render);
+});
+// 窗口宽度变化（旋转手机、缩放窗口）时按新卡片宽重新换算字号比例
+window.addEventListener('resize', render);
+
+// ============ 导出 PNG（原生 Canvas 直接绘制） ============
+// 旧版用 html2canvas 截取 DOM：克隆页面时要重新解析全部 CSS、字体和图片，
+// 遇到跨域字体、本地 file:// 图片或个别 CSS 写法就会整图失败。
+// 改为按预览的同一套参数（书写区 %、字号、偏移）在 Canvas 上重绘底图 + 正文 + 签名，
+// 不截 DOM、不受页面 CSS 影响；辅助边框本来就不画，自然不会进图。
+function wrapLines(ctx, text, maxWidth, indent, firstParaIndent){
+// 断行规则（与预览的 line-break:strict / 按词断行保持一致）：
+// 1) 标点不换行：中文标点（。、，；：！？等）绝不出现在行首——本行已满时标点挤进本行末尾
+//    （可略微超出书写区右边界一个标点宽度），不换到下一行；开引号 / 开括号绝不留在行尾，断行时跟到下一行行首。
+// 2) 英文不断词：英文按单词整体断行，不从中间断开；单个长单词一整行都放不下时，才在词中断开
+//    并在断点加「-」，余下部分续到下一行。
+// 3) 每段首行缩进 indent，第一段首行用 firstParaIndent（称呼顶格时为 0）。
+const NO_START = '。、，；：！？·…‥」』】）〉》”’％℃' + ',.;:!?)]%'; // 绝不出现在行首的标点
+const NO_END = '「『【（〈《“‘' + '([{'; // 绝不留在行尾的标点
+const isWordCh = ch => /[A-Za-z0-9]/.test(ch);
+const lines = [];
+text.split('\n').forEach((para, pi) => {
+const firstIndent = pi === 0? firstParaIndent: indent;
+if (para === '') { lines.push({ text:'', indent:0}); return;}
+// 切成 token：英文单词整块（可含词内的 ’ / -）、空格、其余单字
+const tokens = [];
+for (let i = 0; i < para.length;) {
+const ch = para[i];
+if (isWordCh(ch)) {
+let j = i + 1;
+while (j < para.length && (isWordCh(para[j]) || ((para[j] === "'" || para[j] === '’' || para[j] === '-') && j + 1 < para.length && isWordCh(para[j + 1])))) j++;
+tokens.push({ t: para.slice(i, j), word: true});
+i = j;
+} else if (ch === ' ') { tokens.push({ t:' ', space: true}); i++;}
+else { tokens.push({ t: ch, word: false}); i++;}
+}
+let cur = '', first = true;
+const avail = () => maxWidth - (first? firstIndent: 0);
+const flush = () => { lines.push({ text: cur.replace(/ +$/, ''), indent: first? firstIndent: 0}); cur = ''; first = false;};
+// 断行：若行尾是开引号 / 开括号，把它带到下一行行首
+const breakLine = () => {
+let tail = '';
+if (cur.length > 1 && NO_END.indexOf(cur.charAt(cur.length - 1)) >= 0) { tail = cur.slice(-1); cur = cur.slice(0, -1);}
+flush(); cur = tail;
+};
+for (const tok of tokens) {
+if (tok.space) {
+// 行首不留空格；空格放不下时就在这里断行，空格本身丢弃
+if (cur === '') continue;
+if (ctx.measureText(cur + ' ').width <= avail()) cur += ' ';
+else breakLine();
+continue;
+}
+if (ctx.measureText(cur + tok.t).width <= avail()) { cur += tok.t; continue;}
+// 放不下：
+if (!tok.word && cur !== '' && NO_START.indexOf(tok.t) >= 0) { cur += tok.t; continue;} // 标点挤进本行末尾，绝不去下一行行首
+if (tok.word && ctx.measureText(tok.t).width > maxWidth) {
+// 超长单词：连字符断词——先填满本行剩余空间（断点加「-」），余下部分续到下一行，可反复断
+let rest = tok.t;
+while (rest !== '') {
+if (ctx.measureText(rest).width <= avail()) { cur += rest; rest = ''; break;}
+let n = rest.length;
+while (n > 0 && ctx.measureText(rest.slice(0, n) + '-').width > avail()) n--;
+if (n === 0) { if (cur === '') { n = 1;} else { breakLine(); continue;}}
+cur += rest.slice(0, n) + '-';
+rest = rest.slice(n);
+breakLine();
+}
+continue;
+}
+if (cur === '') { cur += tok.t; continue;} // 行首第一个 token 先放下，避免空行 / 死循环
+breakLine(); // 一般情况：整词 / 整字换到下一行
+cur += tok.t;
+}
+flush();
+});
+return lines;
+}
+
+$('btnGenerate').addEventListener('click', async () => {
+const btn = $('btnGenerate'), status = $('exportStatus');
+btn.disabled = true; btn.textContent = '正在生成…'; status.textContent = '';
+try {
+// 本地 file:// 打开时，底图若是直接从硬盘路径加载的，画布会被浏览器判定为跨域污染、导出必然失败。
+// 先拦下来并给出明确指引，而不是等画完才报一个看不懂的失败。
+const bgIsData = bgImg.src && (bgImg.src.indexOf('data:') === 0 || bgImg.src.indexOf('blob:') === 0);
+const hasBgNow = bgImg.style.display !== 'none' && bgImg.naturalWidth > 0;
+if (isLocalFile && hasBgNow && !loadedData[currentTpl.id] && !bgIsData) {
+status.textContent = '生成不了：当前底图是直接从硬盘路径加载的，浏览器会拦截导出。请先点左侧「选择 images 文件夹」，选一次 images 文件夹把图片读进来（上方显示已加载 18 / 18 张），再点生成。';
+btn.disabled = false; btn.textContent = '生成鼓励贴';
+return;
+}
+// 若当前模板已通过文件夹读进来，确保预览用的是那份 dataURL（同源安全）
+if (loadedData[currentTpl.id] && bgImg.src !== loadedData[currentTpl.id]) {
+await new Promise(res => {
+const done = () => res();
+bgImg.onload = () => { bgImg.style.display = 'block'; bgFallback.style.visibility = 'hidden'; done();};
+bgImg.onerror = done;
+bgImg.src = loadedData[currentTpl.id];
+setTimeout(done, 1200);
+});
+}
+// 等手写字体加载完再画，否则导出图会回退成默认字体
+if (document.fonts && document.fonts.ready) { try { await document.fonts.ready;} catch(e){} }
+const rect = previewEl.getBoundingClientRect();
+const hasBg = bgImg.style.display !== 'none' && bgImg.naturalWidth > 0;
+// 有底图时按底图原图尺寸导出（最清晰）；无底图时按预览 2 倍
+const W = hasBg? bgImg.naturalWidth: Math.round(rect.width * 2);
+const H = hasBg? bgImg.naturalHeight: Math.round(rect.height * 2);
+// 字号 / 偏移按基准宽 REF_W(580) 换算到导出像素，与设备、与预览实际宽度无关：
+// 手机和电脑选同样的字号，导出图里文字占卡片的比例、断行行数完全一致。
+const sref = W / REF_W;
+const canvas = document.createElement('canvas');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+// —— 底图 / 渐变占位 ——
+if (hasBg) {
+ctx.drawImage(bgImg, 0, 0, W, H);
+} else {
+const g = ctx.createLinearGradient(0, 0, W * .3, H);
+g.addColorStop(0, '#fdf3d8'); g.addColorStop(.34, '#fbe3ae');
+g.addColorStop(.62, '#f7c873'); g.addColorStop(1, '#ee9a52');
+ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+ctx.fillStyle = '#1d3557';
+ctx.font = Math.round(H * .041) + 'px "Ma Shan Zheng", cursive';
+ctx.fillText('MASTER CAMP', W / 2, H * .055);
+ctx.fillStyle = '#7a4b16';
+ctx.font = '700 ' + Math.round(H * .016) + 'px sans-serif';
+ctx.fillText('鼓 励 贴', W / 2, H * .125);
+}
+
+// —— 正文：与预览同一套书写区 / 字号 / 偏移，超出书写区裁掉 ——
+const fontSize = parseInt($('fontSize').value, 10);
+const sa = currentTpl.safeArea;
+const ax = sa.x / 100 * W + bodyOffset.x * sref;
+const ay = sa.y / 100 * H + bodyOffset.y * sref;
+const aw = sa.w / 100 * W, ah = sa.h / 100 * H;
+const fpx = fontSize * sref, lh = fpx * 1.8;
+ctx.save();
+ctx.beginPath(); ctx.rect(ax, ay, aw, ah); ctx.clip();
+ctx.font = fpx + 'px ' + $('bodyFont').value;
+ctx.fillStyle = $('bodyColor').value;
+ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+let ly = ay;
+for (const ln of wrapLines(ctx, $('bodyInput').value, aw, fpx * 2, $('salutationTop').checked? 0: fpx * 2)) {
+if (ly + lh > ay + ah + .5) break;
+if (ln.text) ctx.fillText(ln.text, ax + ln.indent, ly);
+ly += lh;
+}
+ctx.restore();
+
+// —— 签名（固定 24 号）+ 日期（固定 13 号），位置 / 旋转与预览一致 ——
+const signPx = 24 * sref, datePx = 13 * sref, signLH = signPx * 1.3;
+const blockH = signLH + 5 * sref + 7 * sref + datePx * 1.5;
+const topY = H * (1 - .055) + signOffset.y * sref - blockH;
+const isRight = $('signPos').value === 'right';
+const anchorX = (isRight? W * .92: W * .08) + signOffset.x * sref;
+ctx.save();
+ctx.translate(anchorX, topY + signLH / 2);
+ctx.rotate(-2 * Math.PI / 180);
+ctx.translate(-anchorX, -(topY + signLH / 2));
+ctx.fillStyle = $('signColor').value;
+ctx.textAlign = isRight? 'right': 'left'; ctx.textBaseline = 'top';
+ctx.font = signPx + 'px ' + $('signFont').value;
+const signStr = $('signInput').value || ' ';
+ctx.fillText(signStr, anchorX, topY);
+const tw = ctx.measureText(signStr).width;
+// 手绘下划线（微弧）
+ctx.globalAlpha = .65; ctx.strokeStyle = $('signColor').value;
+ctx.lineWidth = Math.max(1.5, 2 * sref);
+const ux0 = isRight? anchorX - tw: anchorX, uy = topY + signLH + 2 * sref;
+ctx.beginPath();
+ctx.moveTo(ux0 + 1, uy);
+ctx.quadraticCurveTo(ux0 + tw / 2, uy - 3 * sref, ux0 + Math.max(tw - 1, 1), uy);
+ctx.stroke();
+ctx.globalAlpha = 1;
+ctx.font = datePx + 'px "Courier New", monospace';
+ctx.fillText($('dateInput').value, anchorX, topY + signLH + 5 * sref + 7 * sref);
+ctx.restore();
+
+// —— 右下角铅笔插画：与预览保持一致，一并画进导出图（画不上也不影响出图） ——
+try {
+const pen = $('penArt');
+if (pen) {
+const clone = pen.cloneNode(true);
+clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+const penUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }));
+const penImg = new Image();
+await new Promise((res, rej) => { penImg.onload = res; penImg.onerror = rej; penImg.src = penUrl;});
+const pw = W * .2; // 预览里宽 20%、方形，贴右下角
+ctx.drawImage(penImg, W - pw, H - pw, pw, pw);
+URL.revokeObjectURL(penUrl);
+}
+} catch(e) {}
+
+// —— 下载 ——
+const dateStr = $('dateInput').value || todayStr();
+let blob = null;
+if (canvas.toBlob) {
+blob = await new Promise((res, rej) => {
+try { canvas.toBlob(b => res(b), 'image/png'); } catch(err) { rej(err); }
+});
+}
+if (blob) {
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.download = '鼓励贴_' + dateStr + '.png';
+a.href = url; a.click();
+setTimeout(() => URL.revokeObjectURL(url), 4000);
+} else {
+// 极少数浏览器无 toBlob 时退回 dataURL
+const a = document.createElement('a');
+a.download = '鼓励贴_' + dateStr + '.png';
+a.href = canvas.toDataURL('image/png');
+a.click();
+}
+status.textContent = '已生成：鼓励贴_' + dateStr + '.png';
+} catch(e) {
+status.textContent = isLocalFile && !loadedData[currentTpl.id]
+? '生成失败：本地打开时图片被浏览器跨域拦截。请先点左侧「选择 images 文件夹」选一次 images 文件夹把图片读进来，再重新生成。'
+: '生成失败：浏览器拦截了图片导出。请用 Chrome / Edge 打开；本地打开时先点「选择 images 文件夹」读入底图后再试。';
+} finally {
+btn.disabled = false; btn.textContent = '生成鼓励贴';
+}
+});
+
+// ============ 初始化 ============
+selectTemplate(TEMPLATES[0], document.querySelector('.tpl-thumb'));
+render();
+refreshFolderStatus();
+</script>
+</body>
+</html>
